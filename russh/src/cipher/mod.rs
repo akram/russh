@@ -42,14 +42,19 @@ use crate::sshbuffer::SSHBuffer;
 
 pub(crate) mod block;
 pub(crate) mod cbc;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 pub(crate) mod chacha20poly1305;
 pub(crate) mod clear;
 pub(crate) mod gcm;
 
 use block::SshBlockCipher;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use chacha20poly1305::SshChacha20Poly1305Cipher;
 use clear::Clear;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use gcm::GcmCipher;
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+use gcm::OpenSslGcmCipher;
 
 pub(crate) trait Cipher {
     fn needs_mac(&self) -> bool {
@@ -107,11 +112,18 @@ static _3DES_CBC: SshBlockCipher<CbcWrapper<des::TdesEde3>> = SshBlockCipher(Pha
 static _AES_128_CTR: SshBlockCipher<CtrWrapper<Ctr128BE<Aes128>>> = SshBlockCipher(PhantomData);
 static _AES_192_CTR: SshBlockCipher<CtrWrapper<Ctr128BE<Aes192>>> = SshBlockCipher(PhantomData);
 static _AES_256_CTR: SshBlockCipher<CtrWrapper<Ctr128BE<Aes256>>> = SshBlockCipher(PhantomData);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_128_GCM: GcmCipher = GcmCipher(&ALGORITHM_AES_128_GCM);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_256_GCM: GcmCipher = GcmCipher(&ALGORITHM_AES_256_GCM);
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+static _AES_128_GCM: OpenSslGcmCipher = OpenSslGcmCipher(16);
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+static _AES_256_GCM: OpenSslGcmCipher = OpenSslGcmCipher(32);
 static _AES_128_CBC: SshBlockCipher<CbcWrapper<Aes128>> = SshBlockCipher(PhantomData);
 static _AES_192_CBC: SshBlockCipher<CbcWrapper<Aes192>> = SshBlockCipher(PhantomData);
 static _AES_256_CBC: SshBlockCipher<CbcWrapper<Aes256>> = SshBlockCipher(PhantomData);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _CHACHA20_POLY1305: SshChacha20Poly1305Cipher = SshChacha20Poly1305Cipher {};
 
 pub static ALL_CIPHERS: &[&Name] = &[
@@ -127,6 +139,7 @@ pub static ALL_CIPHERS: &[&Name] = &[
     &AES_128_CBC,
     &AES_192_CBC,
     &AES_256_CBC,
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     &CHACHA20_POLY1305,
 ];
 
@@ -145,6 +158,7 @@ pub(crate) static CIPHERS: LazyLock<HashMap<&'static Name, &(dyn Cipher + Send +
         h.insert(&AES_128_CBC, &_AES_128_CBC);
         h.insert(&AES_192_CBC, &_AES_192_CBC);
         h.insert(&AES_256_CBC, &_AES_256_CBC);
+        #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
         h.insert(&CHACHA20_POLY1305, &_CHACHA20_POLY1305);
         assert_eq!(h.len(), ALL_CIPHERS.len());
         h

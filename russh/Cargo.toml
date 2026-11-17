@@ -58,6 +58,7 @@ md5 = "0.8"
 ml-kem = "0.3"
 module-lattice = "0.2"
 num-bigint = { version = "0.5", features = ["rand_0_10"] }
+openssl = { version = "0.10", optional = true }
 p256 = { version = "0.14", features = ["ecdh"] }
 p384 = { version = "0.14", features = ["ecdh"] }
 p521 = { version = "0.14", features = ["ecdh"] }
@@ -112,12 +113,20 @@ tokio = { workspace = true, features = [
 
 [features]
 default = ["flate2", "aws-lc-rs", "rsa"]
-# Crypto backends: enable at least one of `aws-lc-rs` or `ring`.
+# Crypto backends: enable at least one of `aws-lc-rs`, `ring`, or `openssl`.
 aws-lc-rs = ["dep:aws-lc-rs"] # Default crypto backend.
 # Danger: 3DES cipher is insecure.
 des = ["dep:des"]
 # Danger: DSA algorithm is insecure.
 dsa = ["ssh-key/dsa"]
+# AEAD ciphers (aes*-gcm@openssh.com) via system OpenSSL instead of
+# ring/aws-lc-rs, for environments that require all cryptographic
+# operations to go through a FIPS-certifiable OpenSSL build. Mutually
+# exclusive with `ring`/`aws-lc-rs` for the ciphers it covers: when more
+# than one of the three is enabled, `aws-lc-rs` wins, then `ring`, then
+# `openssl` (same precedence the existing aws-lc-rs/ring pair already
+# has in cipher/mod.rs and cipher/gcm.rs).
+openssl = ["dep:openssl"]
 ring = ["dep:ring"]                           # Alternative crypto backend.
 rsa = ["dep:rsa", "dep:pkcs1", "ssh-key/rsa"]
 serde = ["ssh-key/serde"]

@@ -186,6 +186,11 @@ const KEX_EXTENSION_NAMES: &[kex::Name] = &[
 ];
 
 const CIPHER_ORDER: &[cipher::Name] = &[
+    // chacha20-poly1305@openssh.com isn't available when only `openssl` is
+    // enabled as a crypto backend (ring/aws-lc-rs own a dedicated AEAD
+    // primitive for it that OpenSSL has no equivalent of, and it's not a
+    // FIPS-approved algorithm anyway, so there's no need to provide one).
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     cipher::CHACHA20_POLY1305,
     cipher::AES_256_GCM,
     cipher::AES_256_CTR,
