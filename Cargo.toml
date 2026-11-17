@@ -18,11 +18,11 @@ sha1 = { version = "0.11", features = ["oid"] }
 sha2 = { version = "0.11", features = ["oid"] }
 signature = "3"
 ssh-encoding = { version = "0.3", features = ["bytes"] }
-# ed25519/p256/p384/p521 are deliberately NOT listed here: they select the
-# RustCrypto sign/verify backend, and are pulled in conditionally by russh's
-# own aws-lc-rs/ring/openssl features instead, so the openssl backend doesn't
-# also compile in ed25519-dalek/p256/p384 alongside it.
 ssh-key = { version = "=0.7.0-rc.12", features = [
+    "ed25519",
+    "p256",
+    "p384",
+    "p521",
     "encryption",
     "ppk",
     "sha1",
