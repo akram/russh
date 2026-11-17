@@ -114,7 +114,12 @@ tokio = { workspace = true, features = [
 [features]
 default = ["flate2", "aws-lc-rs", "rsa"]
 # Crypto backends: enable at least one of `aws-lc-rs`, `ring`, or `openssl`.
-aws-lc-rs = ["dep:aws-lc-rs"] # Default crypto backend.
+# Each one also selects ssh-key's matching sign/verify backend for
+# Ed25519/ECDSA host and user keys (see ssh-key's own `openssl` feature doc):
+# without this, ssh-key's RustCrypto backends (ed25519-dalek/p256/p384/p521)
+# stayed compiled in even when `openssl` was selected, since nothing had
+# disabled them.
+aws-lc-rs = ["dep:aws-lc-rs", "ssh-key/ed25519", "ssh-key/p256", "ssh-key/p384", "ssh-key/p521"]
 # Danger: 3DES cipher is insecure.
 des = ["dep:des"]
 # Danger: DSA algorithm is insecure.
@@ -125,9 +130,17 @@ dsa = ["ssh-key/dsa"]
 # exclusive with `ring`/`aws-lc-rs` for the ciphers it covers: when more
 # than one of the three is enabled, `aws-lc-rs` wins, then `ring`, then
 # `openssl` (same precedence the existing aws-lc-rs/ring pair already
-# has in cipher/mod.rs and cipher/gcm.rs).
-openssl = ["dep:openssl"]
-ring = ["dep:ring"]                           # Alternative crypto backend.
+# has in cipher/mod.rs and cipher/gcm.rs). Also selects ssh-key's `openssl`
+# feature (Ed25519/ECDSA/RSA sign-verify), instead of `ring`/`aws-lc-rs`'s
+# ssh-key/ed25519+p256+p384+p521.
+openssl = ["dep:openssl", "ssh-key/openssl"]
+ring = ["dep:ring", "ssh-key/ed25519", "ssh-key/p256", "ssh-key/p384", "ssh-key/p521"] # Alternative crypto backend.
+# NOTE: does not also gate ssh-key/rsa on the selected backend the way
+# ed25519/p256/p384/p521 are gated above. russh's own PKCS8 key-file parsing
+# (russh/src/keys/format/pkcs8.rs) uses the `rsa`/`pkcs1` crates directly,
+# independently of ssh-key's signing backend, so that dependency can't be
+# dropped by this feature alone regardless; ssh-key's `openssl` feature
+# still also covers RSA sign/verify when both are enabled together.
 rsa = ["dep:rsa", "dep:pkcs1", "ssh-key/rsa"]
 serde = ["ssh-key/serde"]
 _bench = ["dep:criterion"]
