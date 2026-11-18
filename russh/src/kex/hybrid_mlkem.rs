@@ -1,5 +1,4 @@
 use byteorder::{BigEndian, ByteOrder};
-use curve25519_dalek::montgomery::MontgomeryPoint;
 use log::debug;
 use ml_kem::Kem;
 use ml_kem::{
@@ -9,7 +8,7 @@ use ml_kem::{
 use sha2::Digest;
 use ssh_encoding::{Encode, Writer};
 
-use super::{compute_keys, KexAlgorithm, KexAlgorithmImplementor, KexType, SharedSecret};
+use super::{compute_keys, x25519, KexAlgorithm, KexAlgorithmImplementor, KexType, SharedSecret};
 use crate::mac;
 use crate::session::Exchange;
 use crate::{cipher, msg, CryptoVec, Error};
@@ -41,7 +40,7 @@ pub struct MlKem768X25519Kex {
     mlkem_secret: Option<Box<MlKem768PrivateKey>>,
     x25519_secret: Option<[u8; 32]>,
     k_pq: Option<ml_kem::SharedKey>,
-    k_cl: Option<MontgomeryPoint>,
+    k_cl: Option<[u8; 32]>,
 }
 
 impl std::fmt::Debug for MlKem768X25519Kex {
@@ -86,16 +85,16 @@ impl KexAlgorithmImplementor for MlKem768X25519Kex {
 
         let c_pk2 = MlKem768PublicKey::new_from_slice(c_pk2_bytes).map_err(|_| Error::Kex)?;
 
-        let mut c_pk1 = MontgomeryPoint([0; 32]);
-        c_pk1.0.copy_from_slice(c_pk1_bytes);
+        let mut c_pk1 = [0u8; 32];
+        c_pk1.copy_from_slice(c_pk1_bytes);
 
         let (s_ct2, k_pq_shared_secret) = c_pk2.encapsulate_with_rng(&mut rand::rng());
 
         let s_secret = rand::random::<[u8; 32]>();
-        let s_pk1 = MontgomeryPoint::mul_base_clamped(s_secret);
+        let s_pk1 = x25519::base_clamped(&s_secret);
 
-        let k_cl = c_pk1.mul_clamped(s_secret);
-        if k_cl.0 == [0u8; 32] {
+        let k_cl = x25519::clamped(&c_pk1, &s_secret);
+        if k_cl == [0u8; 32] {
             debug!("client sent a low-order curve25519 pubkey");
             return Err(Error::Kex);
         }
@@ -104,7 +103,7 @@ impl KexAlgorithmImplementor for MlKem768X25519Kex {
         exchange
             .server_ephemeral
             .extend_from_slice(s_ct2.as_slice());
-        exchange.server_ephemeral.extend_from_slice(&s_pk1.0);
+        exchange.server_ephemeral.extend_from_slice(&s_pk1);
 
         self.k_pq = Some(k_pq_shared_secret);
         self.k_cl = Some(k_cl);
@@ -120,16 +119,16 @@ impl KexAlgorithmImplementor for MlKem768X25519Kex {
         let (mlkem_sk, mlkem_pk) = MlKem768::generate_keypair_from_rng(&mut rand::rng());
 
         let x25519_secret = rand::random::<[u8; 32]>();
-        let x25519_pk = MontgomeryPoint::mul_base_clamped(x25519_secret);
+        let x25519_pk = x25519::base_clamped(&x25519_secret);
 
         client_ephemeral.clear();
         client_ephemeral.extend(&mlkem_pk.to_bytes());
-        client_ephemeral.extend(&x25519_pk.0);
+        client_ephemeral.extend(&x25519_pk);
 
         msg::KEX_HYBRID_INIT.encode(writer)?;
         let mut c_init = Vec::<u8>::new();
         c_init.extend(mlkem_pk.to_bytes());
-        c_init.extend(&x25519_pk.0);
+        c_init.extend(&x25519_pk);
         c_init.as_slice().encode(writer)?;
 
         self.mlkem_secret = Some(Box::new(mlkem_sk));
@@ -152,12 +151,12 @@ impl KexAlgorithmImplementor for MlKem768X25519Kex {
 
         let mlkem_secret = self.mlkem_secret.take().ok_or(Error::KexInit)?;
         let k_pq_shared_secret = mlkem_secret.decapsulate(&s_ct2);
-        let mut s_pk1 = MontgomeryPoint([0; 32]);
-        s_pk1.0.copy_from_slice(s_pk1_bytes);
+        let mut s_pk1 = [0u8; 32];
+        s_pk1.copy_from_slice(s_pk1_bytes);
 
         let x25519_secret = self.x25519_secret.take().ok_or(Error::KexInit)?;
-        let k_cl = s_pk1.mul_clamped(x25519_secret);
-        if k_cl.0 == [0u8; 32] {
+        let k_cl = x25519::clamped(&s_pk1, &x25519_secret);
+        if k_cl == [0u8; 32] {
             debug!("server sent a low-order curve25519 pubkey");
             return Err(Error::Kex);
         }
@@ -173,7 +172,7 @@ impl KexAlgorithmImplementor for MlKem768X25519Kex {
         // The actual combined secret is computed during compute_keys.
         // We return the X25519 portion as that's what's directly available.
         // Users needing the full hybrid secret should use compute_keys.
-        self.k_cl.as_ref().map(|k| k.0.as_slice())
+        self.k_cl.as_ref().map(|k| k.as_slice())
     }
 
     fn compute_exchange_hash(
@@ -198,7 +197,7 @@ impl KexAlgorithmImplementor for MlKem768X25519Kex {
 
         let mut combined = Vec::new();
         combined.extend_from_slice(k_pq);
-        combined.extend_from_slice(&k_cl.0);
+        combined.extend_from_slice(k_cl);
 
         let mut hasher = sha2::Sha256::new();
         hasher.update(&combined);
@@ -226,7 +225,7 @@ impl KexAlgorithmImplementor for MlKem768X25519Kex {
 
         let mut combined = Vec::new();
         combined.extend_from_slice(k_pq);
-        combined.extend_from_slice(&k_cl.0);
+        combined.extend_from_slice(k_cl);
 
         let mut hasher = sha2::Sha256::new();
         hasher.update(&combined);
@@ -310,7 +309,7 @@ mod tests {
         let client_k_cl = client_kex.k_cl.unwrap();
         let server_k_cl = server_kex.k_cl.unwrap();
         assert_eq!(
-            client_k_cl.0, server_k_cl.0,
+            client_k_cl, server_k_cl,
             "X25519 shared secrets should match"
         );
     }

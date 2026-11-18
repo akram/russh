@@ -20,6 +20,7 @@ pub mod dh;
 mod ecdh_nistp;
 mod hybrid_mlkem;
 mod none;
+mod x25519;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryFrom;

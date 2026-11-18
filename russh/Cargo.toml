@@ -34,7 +34,7 @@ cipher = "0.5.1" # only pinned due to a cargo-minimal-versions failure in 0.5.0
 criterion = { version = "0.7", optional = true, features = ["html_reports"] }
 crypto-bigint = { version = "0.7.3", features = ["alloc"] }
 ctr = "0.10"
-curve25519-dalek = "5"
+curve25519-dalek = { version = "5", optional = true }
 data-encoding = "2.3"
 delegate.workspace = true
 der = "0.8"
@@ -114,10 +114,11 @@ tokio = { workspace = true, features = [
 [features]
 default = ["flate2", "aws-lc-rs", "rsa"]
 # Crypto backends: enable at least one of `aws-lc-rs`, `ring`, or `openssl`.
-# `ed25519-dalek` backs Ed25519 PKCS#8 parsing/encoding for the aws-lc-rs/ring
-# backends; the `openssl` backend has its own OpenSSL-based path for that
-# (see keys/format/pkcs8.rs) and doesn't need the crate at all.
-aws-lc-rs = ["dep:aws-lc-rs", "dep:ed25519-dalek", "ssh-key/ed25519"] # Default crypto backend.
+# `ed25519-dalek`/`curve25519-dalek` back Ed25519 PKCS#8 parsing/encoding and
+# the X25519 KEX for the aws-lc-rs/ring backends; the `openssl` backend has
+# its own OpenSSL-based path for both (see keys/format/pkcs8.rs and
+# kex/x25519.rs) and doesn't need either crate.
+aws-lc-rs = ["dep:aws-lc-rs", "dep:ed25519-dalek", "dep:curve25519-dalek", "ssh-key/ed25519"] # Default crypto backend.
 # Danger: 3DES cipher is insecure.
 des = ["dep:des"]
 # Danger: DSA algorithm is insecure.
@@ -130,7 +131,7 @@ dsa = ["ssh-key/dsa"]
 # `openssl` (same precedence the existing aws-lc-rs/ring pair already
 # has in cipher/mod.rs and cipher/gcm.rs).
 openssl = ["dep:openssl", "ssh-key/openssl"]
-ring = ["dep:ring", "dep:ed25519-dalek", "ssh-key/ed25519"] # Alternative crypto backend.
+ring = ["dep:ring", "dep:ed25519-dalek", "dep:curve25519-dalek", "ssh-key/ed25519"] # Alternative crypto backend.
 rsa = ["dep:rsa", "dep:pkcs1", "ssh-key/rsa"]
 serde = ["ssh-key/serde"]
 _bench = ["dep:criterion"]

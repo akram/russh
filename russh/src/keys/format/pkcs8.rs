@@ -159,10 +159,10 @@ where
 
 // OpenSSL-backed PKCS#8 decode/encode for EC and Ed25519 keys, as an
 // alternative to the `p256`/`p384`/`p521`/`ed25519-dalek` crates used above.
-// `curve25519-dalek`/`p256`/`p384`/`p521`/`ecdsa` remain hard dependencies of
-// this crate for KEX (`kex/curve25519.rs`, `kex/ecdh_nistp.rs`), which has no
-// OpenSSL backend yet; this module only removes `ed25519-dalek` from the
-// `openssl`-only build, since nothing else in this crate needs it.
+// `curve25519-dalek` is also gone from the `openssl`-only build (see
+// kex/x25519.rs), but `p256`/`p384`/`p521`/`ecdsa` remain hard dependencies
+// for the NIST-curve KEX (`kex/ecdh_nistp.rs`), which has no OpenSSL backend
+// yet.
 #[cfg(feature = "openssl")]
 mod openssl_backend {
     use openssl::bn::{BigNum, BigNumContext};

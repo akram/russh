@@ -1,11 +1,10 @@
 use byteorder::{BigEndian, ByteOrder};
-use curve25519_dalek::montgomery::MontgomeryPoint;
 use log::debug;
 use sha2::Digest;
 use ssh_encoding::{Encode, Writer};
 
 use super::{
-    KexAlgorithm, KexAlgorithmImplementor, KexType, SharedSecret, compute_keys, encode_mpint,
+    KexAlgorithm, KexAlgorithmImplementor, KexType, SharedSecret, compute_keys, encode_mpint, x25519,
 };
 use crate::mac::{self};
 use crate::session::Exchange;
@@ -26,7 +25,7 @@ impl KexType for Curve25519KexType {
 #[doc(hidden)]
 pub struct Curve25519Kex {
     local_secret: Option<[u8; 32]>,
-    shared_secret: Option<MontgomeryPoint>,
+    shared_secret: Option<[u8; 32]>,
 }
 
 impl std::fmt::Debug for Curve25519Kex {
@@ -66,22 +65,20 @@ impl KexAlgorithmImplementor for Curve25519Kex {
                 return Err(crate::Error::Inconsistent);
             }
 
-            let mut pubkey = MontgomeryPoint([0; 32]);
+            let mut pubkey = [0u8; 32];
             #[allow(clippy::indexing_slicing)] // length checked
-            pubkey.0.clone_from_slice(&payload[5..5 + 32]);
+            pubkey.clone_from_slice(&payload[5..5 + 32]);
             pubkey
         };
 
         let server_secret = rand::random::<[u8; 32]>();
-        let server_pubkey = MontgomeryPoint::mul_base_clamped(server_secret);
+        let server_pubkey = x25519::base_clamped(&server_secret);
 
         // fill exchange.
         exchange.server_ephemeral.clear();
-        exchange
-            .server_ephemeral
-            .extend_from_slice(&server_pubkey.0);
-        let shared = client_pubkey.mul_clamped(server_secret);
-        if shared.0 == [0u8; 32] {
+        exchange.server_ephemeral.extend_from_slice(&server_pubkey);
+        let shared = x25519::clamped(&client_pubkey, &server_secret);
+        if shared == [0u8; 32] {
             // Non-contributory: the client sent a low-order point.
             debug!("client sent a low-order curve25519 pubkey");
             return Err(crate::Error::Kex);
@@ -97,14 +94,14 @@ impl KexAlgorithmImplementor for Curve25519Kex {
         writer: &mut impl Writer,
     ) -> Result<(), crate::Error> {
         let client_secret = rand::random::<[u8; 32]>();
-        let client_pubkey = MontgomeryPoint::mul_base_clamped(client_secret);
+        let client_pubkey = x25519::base_clamped(&client_secret);
 
         // fill exchange.
         client_ephemeral.clear();
-        client_ephemeral.extend_from_slice(&client_pubkey.0);
+        client_ephemeral.extend_from_slice(&client_pubkey);
 
         msg::KEX_ECDH_INIT.encode(writer)?;
-        (client_pubkey.0[..]).encode(writer)?;
+        (client_pubkey[..]).encode(writer)?;
 
         self.local_secret = Some(client_secret);
         Ok(())
@@ -115,10 +112,10 @@ impl KexAlgorithmImplementor for Curve25519Kex {
         if remote_pubkey_.len() != 32 {
             return Err(crate::Error::Kex);
         }
-        let mut remote_pubkey = MontgomeryPoint([0; 32]);
-        remote_pubkey.0.clone_from_slice(remote_pubkey_);
-        let shared = remote_pubkey.mul_clamped(local_secret);
-        if shared.0 == [0u8; 32] {
+        let mut remote_pubkey = [0u8; 32];
+        remote_pubkey.clone_from_slice(remote_pubkey_);
+        let shared = x25519::clamped(&remote_pubkey, &local_secret);
+        if shared == [0u8; 32] {
             // Non-contributory: the server sent a low-order point.
             debug!("server sent a low-order curve25519 pubkey");
             return Err(crate::Error::Kex);
@@ -128,7 +125,7 @@ impl KexAlgorithmImplementor for Curve25519Kex {
     }
 
     fn shared_secret_bytes(&self) -> Option<&[u8]> {
-        self.shared_secret.as_ref().map(|s| s.0.as_slice())
+        self.shared_secret.as_ref().map(|s| s.as_slice())
     }
 
     fn compute_exchange_hash(
@@ -149,7 +146,7 @@ impl KexAlgorithmImplementor for Curve25519Kex {
         exchange.server_ephemeral.encode(buffer)?;
 
         if let Some(ref shared) = self.shared_secret {
-            encode_mpint(&shared.0, buffer)?;
+            encode_mpint(shared, buffer)?;
         }
 
         let mut hasher = sha2::Sha256::new();
@@ -170,7 +167,7 @@ impl KexAlgorithmImplementor for Curve25519Kex {
         let shared_secret = self
             .shared_secret
             .as_ref()
-            .map(|x| SharedSecret::from_mpint(&x.0))
+            .map(|x| SharedSecret::from_mpint(x))
             .transpose()?;
 
         compute_keys::<sha2::Sha256>(
@@ -228,7 +225,7 @@ mod tests {
             shared_secret: None,
         };
         let mut exchange = Exchange::new(b"client", b"server");
-        let peer = MontgomeryPoint::mul_base_clamped(rand::random::<[u8; 32]>());
-        kex.server_dh(&mut exchange, &kex_ecdh_init(peer.0)).unwrap();
+        let peer = x25519::base_clamped(&rand::random::<[u8; 32]>());
+        kex.server_dh(&mut exchange, &kex_ecdh_init(peer)).unwrap();
     }
 }
