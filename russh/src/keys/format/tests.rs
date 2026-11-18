@@ -26,6 +26,24 @@ fn test_pkcs8_roundtrip() {
 }
 
 #[test]
+fn test_pkcs8_roundtrip_ecdsa() {
+    use crate::keys::pkcs8::{decode_pkcs8, encode_pkcs8};
+
+    for curve in [
+        ssh_key::EcdsaCurve::NistP256,
+        ssh_key::EcdsaCurve::NistP384,
+        ssh_key::EcdsaCurve::NistP521,
+    ] {
+        let original_key =
+            PrivateKey::random(&mut rand::rng(), Algorithm::Ecdsa { curve }).unwrap();
+
+        let der = encode_pkcs8(&original_key).unwrap();
+        let decoded = decode_pkcs8(&der, None).unwrap();
+        assert_eq!(decoded, original_key, "curve {curve:?} round-trip mismatch");
+    }
+}
+
+#[test]
 fn test_ec_private_key_with_full_domain_params() {
     // This key uses full EC domain parameters instead of a named curve OID.
     // Generated with: openssl ecparam -name prime256v1 -genkey -param_enc explicit -noout

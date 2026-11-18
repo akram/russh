@@ -1,15 +1,38 @@
 use std::convert::{TryFrom, TryInto};
 
+#[cfg(not(feature = "openssl"))]
 use p256::NistP256;
+#[cfg(not(feature = "openssl"))]
 use p384::NistP384;
+#[cfg(not(feature = "openssl"))]
 use p521::NistP521;
-use pkcs8::{AssociatedOid, EncodePrivateKey, PrivateKeyInfoRef, SecretDocument};
+use pkcs8::{PrivateKeyInfoRef, SecretDocument};
+#[cfg(not(feature = "openssl"))]
+use pkcs8::{AssociatedOid, EncodePrivateKey};
 use spki::ObjectIdentifier;
 use ssh_key::PrivateKey;
-use ssh_key::private::{EcdsaKeypair, Ed25519Keypair, Ed25519PrivateKey, KeypairData};
+use ssh_key::private::{EcdsaKeypair, KeypairData};
+#[cfg(not(feature = "openssl"))]
+use ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
 
 use crate::keys::Error;
 use crate::keys::key::safe_rng;
+
+// NIST curve OIDs (SEC2 / RFC 5480), hardcoded here instead of read via the
+// `p256`/`p384`/`p521` crates' `AssociatedOid` impls so curve identification
+// doesn't depend on which backend feature is selected; the actual OID
+// values are identical either way.
+mod oid {
+    use spki::ObjectIdentifier;
+
+    pub(super) const NIST_P256: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
+    pub(super) const NIST_P384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.34");
+    pub(super) const NIST_P521: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.35");
+    /// RFC 8410 Ed25519 algorithm OID, used by the `openssl` backend instead
+    /// of `ed25519_dalek::pkcs8::ALGORITHM_OID`.
+    #[cfg(feature = "openssl")]
+    pub(super) const ED25519: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
+}
 
 /// Decode a PKCS#8-encoded private key (ASN.1 or X9.62)
 pub fn decode_pkcs8(
@@ -29,6 +52,9 @@ pub fn decode_pkcs8(
         let Some(curve) = key.parameters.and_then(|x| x.named_curve()) else {
             return Err(Error::CouldNotReadKey);
         };
+        #[cfg(feature = "openssl")]
+        let kp = openssl_backend::ec_keypair_from_sec1(curve, key)?;
+        #[cfg(not(feature = "openssl"))]
         let kp = ec_key_data_into_keypair(curve, key)?;
         return Ok(PrivateKey::new(KeypairData::Ecdsa(kp), "")?);
     }
@@ -58,6 +84,25 @@ fn pkcs8_pki_into_keypair_data(pki: PrivateKeyInfoRef<'_>) -> Result<KeypairData
         )?;
         return Ok(KeypairData::Rsa(pk.try_into()?));
     }
+
+    #[cfg(feature = "openssl")]
+    {
+        if pki.algorithm.oid.as_bytes() == oid::ED25519.as_bytes() {
+            return Ok(KeypairData::Ed25519(openssl_backend::ed25519_keypair_from_pkcs8(
+                pki.private_key.as_bytes(),
+            )?));
+        }
+        if pki.algorithm.oid.as_bytes() == sec1::ALGORITHM_OID.as_bytes() {
+            let curve_oid = pki.algorithm.parameters_oid()?;
+            let sec1_key = sec1::EcPrivateKey::try_from(pki.private_key.as_bytes())?;
+            return Ok(KeypairData::Ecdsa(openssl_backend::ec_keypair_from_sec1(
+                curve_oid, sec1_key,
+            )?));
+        }
+        return Err(Error::UnknownAlgorithm(pki.algorithm.oid));
+    }
+
+    #[cfg(not(feature = "openssl"))]
     match pki.algorithm.oid {
         ed25519_dalek::pkcs8::ALGORITHM_OID => {
             let kpb = ed25519_dalek::pkcs8::KeypairBytes::try_from(pki)?;
@@ -75,6 +120,7 @@ fn pkcs8_pki_into_keypair_data(pki: PrivateKeyInfoRef<'_>) -> Result<KeypairData
     }
 }
 
+#[cfg(not(feature = "openssl"))]
 fn ec_key_data_into_keypair<K, E>(
     curve_oid: ObjectIdentifier,
     private_key: K,
@@ -109,6 +155,146 @@ where
         }
         oid => return Err(Error::UnknownAlgorithm(oid)),
     })
+}
+
+// OpenSSL-backed PKCS#8 decode/encode for EC and Ed25519 keys, as an
+// alternative to the `p256`/`p384`/`p521`/`ed25519-dalek` crates used above.
+// `curve25519-dalek`/`p256`/`p384`/`p521`/`ecdsa` remain hard dependencies of
+// this crate for KEX (`kex/curve25519.rs`, `kex/ecdh_nistp.rs`), which has no
+// OpenSSL backend yet; this module only removes `ed25519-dalek` from the
+// `openssl`-only build, since nothing else in this crate needs it.
+#[cfg(feature = "openssl")]
+mod openssl_backend {
+    use openssl::bn::{BigNum, BigNumContext};
+    use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
+    use openssl::nid::Nid;
+    use openssl::pkey::{Id, PKey};
+    use spki::ObjectIdentifier;
+    use ssh_key::private::{EcdsaKeypair, EcdsaPrivateKey, Ed25519Keypair, Ed25519PrivateKey};
+
+    use super::oid;
+    use crate::keys::Error;
+
+    fn nid_for_curve_oid(curve_oid: ObjectIdentifier) -> Result<Nid, Error> {
+        Ok(match curve_oid {
+            oid::NIST_P256 => Nid::X9_62_PRIME256V1,
+            oid::NIST_P384 => Nid::SECP384R1,
+            oid::NIST_P521 => Nid::SECP521R1,
+            oid => return Err(Error::UnknownAlgorithm(oid)),
+        })
+    }
+
+    /// Pad `bn` to exactly `N` big-endian bytes and wrap it as an
+    /// [`EcdsaPrivateKey`].
+    fn padded_private_key<const N: usize>(bn: &BigNum) -> Result<EcdsaPrivateKey<N>, Error> {
+        let padded = bn.to_vec_padded(N as i32).map_err(|_| Error::CouldNotReadKey)?;
+        let array: [u8; N] = padded.try_into().map_err(|_| Error::CouldNotReadKey)?;
+        Ok(EcdsaPrivateKey::<N>::from(array))
+    }
+
+    /// Build an [`EcdsaKeypair`] from a private scalar and an optional SEC1
+    /// public point, deriving the public point via `generator * private`
+    /// when the caller doesn't already have it.
+    fn ec_keypair_from_scalar(
+        curve_oid: ObjectIdentifier,
+        private_key_bytes: &[u8],
+        public_key_bytes: Option<&[u8]>,
+    ) -> Result<EcdsaKeypair, Error> {
+        let nid = nid_for_curve_oid(curve_oid)?;
+        let group = EcGroup::from_curve_name(nid).map_err(|_| Error::CouldNotReadKey)?;
+        let mut ctx = BigNumContext::new().map_err(|_| Error::CouldNotReadKey)?;
+        let priv_bn = BigNum::from_slice(private_key_bytes).map_err(|_| Error::CouldNotReadKey)?;
+
+        let pub_point = if let Some(bytes) = public_key_bytes {
+            EcPoint::from_bytes(&group, bytes, &mut ctx).map_err(|_| Error::CouldNotReadKey)?
+        } else {
+            let mut point = EcPoint::new(&group).map_err(|_| Error::CouldNotReadKey)?;
+            point
+                .mul_generator2(&group, &priv_bn, &mut ctx)
+                .map_err(|_| Error::CouldNotReadKey)?;
+            point
+        };
+        let pub_bytes = pub_point
+            .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
+            .map_err(|_| Error::CouldNotReadKey)?;
+
+        Ok(match curve_oid {
+            oid::NIST_P256 => EcdsaKeypair::NistP256 {
+                public: sec1::EncodedPoint::from_bytes(&pub_bytes)?,
+                private: padded_private_key::<32>(&priv_bn)?,
+            },
+            oid::NIST_P384 => EcdsaKeypair::NistP384 {
+                public: sec1::EncodedPoint::from_bytes(&pub_bytes)?,
+                private: padded_private_key::<48>(&priv_bn)?,
+            },
+            oid::NIST_P521 => EcdsaKeypair::NistP521 {
+                public: sec1::EncodedPoint::from_bytes(&pub_bytes)?,
+                private: padded_private_key::<66>(&priv_bn)?,
+            },
+            oid => return Err(Error::UnknownAlgorithm(oid)),
+        })
+    }
+
+    /// Build an [`EcdsaKeypair`] from a parsed SEC1 `EcPrivateKey` (used both
+    /// for the top-level X9.62 format and for a PKCS#8-wrapped EC key, whose
+    /// `privateKey` field is itself a nested DER-encoded `EcPrivateKey`).
+    pub(super) fn ec_keypair_from_sec1(
+        curve_oid: ObjectIdentifier,
+        key: sec1::EcPrivateKey<'_>,
+    ) -> Result<EcdsaKeypair, Error> {
+        ec_keypair_from_scalar(curve_oid, key.private_key, key.public_key)
+    }
+
+    /// Build an [`EcdsaKeypair`] from a raw private scalar with no embedded
+    /// public key (the "explicit domain params" SEC1 format never embeds one).
+    pub(super) fn ec_keypair_from_raw_scalar(
+        curve_oid: ObjectIdentifier,
+        private_key_bytes: &[u8],
+    ) -> Result<EcdsaKeypair, Error> {
+        ec_keypair_from_scalar(curve_oid, private_key_bytes, None)
+    }
+
+    /// RFC 8410 §7: an Ed25519 PKCS#8 `privateKey` OCTET STRING contains a
+    /// nested OCTET STRING (tag `0x04`, length `0x20`) wrapping the raw
+    /// 32-byte seed -- fixed structure, no DER library needed to unwrap it.
+    fn ed25519_seed_from_pkcs8_private_key(private_key: &[u8]) -> Result<[u8; 32], Error> {
+        match private_key {
+            [0x04, 0x20, seed @ ..] if seed.len() == 32 => {
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(seed);
+                Ok(bytes)
+            }
+            _ => Err(Error::CouldNotReadKey),
+        }
+    }
+
+    pub(super) fn ed25519_keypair_from_pkcs8(private_key: &[u8]) -> Result<Ed25519Keypair, Error> {
+        let seed = ed25519_seed_from_pkcs8_private_key(private_key)?;
+        Ok(Ed25519Keypair::from_seed(&seed))
+    }
+
+    pub(super) fn ed25519_keypair_to_pkcs8_der(private: &Ed25519PrivateKey) -> Result<Vec<u8>, Error> {
+        let pkey = PKey::private_key_from_raw_bytes(private.as_ref(), Id::ED25519)
+            .map_err(|_| Error::CouldNotReadKey)?;
+        pkey.private_key_to_pkcs8().map_err(|_| Error::CouldNotReadKey)
+    }
+
+    pub(super) fn ecdsa_keypair_to_pkcs8_der(pair: &EcdsaKeypair) -> Result<Vec<u8>, Error> {
+        let (curve_oid, private, public) = match pair {
+            EcdsaKeypair::NistP256 { private, public } => (oid::NIST_P256, private.as_slice(), public.as_bytes()),
+            EcdsaKeypair::NistP384 { private, public } => (oid::NIST_P384, private.as_slice(), public.as_bytes()),
+            EcdsaKeypair::NistP521 { private, public } => (oid::NIST_P521, private.as_slice(), public.as_bytes()),
+        };
+        let nid = nid_for_curve_oid(curve_oid)?;
+        let group = EcGroup::from_curve_name(nid).map_err(|_| Error::CouldNotReadKey)?;
+        let mut ctx = BigNumContext::new().map_err(|_| Error::CouldNotReadKey)?;
+        let priv_bn = BigNum::from_slice(private).map_err(|_| Error::CouldNotReadKey)?;
+        let pub_point = EcPoint::from_bytes(&group, public, &mut ctx).map_err(|_| Error::CouldNotReadKey)?;
+        let ec_key = EcKey::from_private_components(&group, &priv_bn, &pub_point)
+            .map_err(|_| Error::CouldNotReadKey)?;
+        let pkey = PKey::from_ec_key(ec_key).map_err(|_| Error::CouldNotReadKey)?;
+        pkey.private_key_to_pkcs8().map_err(|_| Error::CouldNotReadKey)
+    }
 }
 
 mod explicit_curve_params {
@@ -170,15 +356,25 @@ mod explicit_curve_params {
             // prime INTEGER — as_bytes() strips DER sign-extension leading zero
             let prime: UintRef = field_id.decode()?;
             Ok(match prime.as_bytes().len() {
-                32 => NistP256::OID,
-                48 => NistP384::OID,
-                66 => NistP521::OID,
+                32 => super::oid::NIST_P256,
+                48 => super::oid::NIST_P384,
+                66 => super::oid::NIST_P521,
                 _ => return Err(Error::CouldNotReadKey),
             })
         })
     }
 
     /// Build an EcdsaKeypair from raw private key bytes and a curve OID.
+    #[cfg(feature = "openssl")]
+    fn build_ec_keypair_from_bytes(
+        curve_oid: ObjectIdentifier,
+        private_key_bytes: &[u8],
+    ) -> Result<EcdsaKeypair, Error> {
+        super::openssl_backend::ec_keypair_from_raw_scalar(curve_oid, private_key_bytes)
+    }
+
+    /// Build an EcdsaKeypair from raw private key bytes and a curve OID.
+    #[cfg(not(feature = "openssl"))]
     fn build_ec_keypair_from_bytes(
         curve_oid: ObjectIdentifier,
         private_key_bytes: &[u8],
@@ -237,6 +433,11 @@ pub fn encode_pkcs8_encrypted(
 /// Encode into a PKCS#8-encoded private key.
 pub fn encode_pkcs8(key: &ssh_key::PrivateKey) -> Result<Vec<u8>, Error> {
     let v = match key.key_data() {
+        #[cfg(feature = "openssl")]
+        ssh_key::private::KeypairData::Ed25519(pair) => {
+            openssl_backend::ed25519_keypair_to_pkcs8_der(&pair.private)?
+        }
+        #[cfg(not(feature = "openssl"))]
         ssh_key::private::KeypairData::Ed25519(pair) => {
             let sk: ed25519_dalek::SigningKey = pair.try_into()?;
             sk.to_pkcs8_der()?.as_bytes().to_vec()
@@ -247,6 +448,9 @@ pub fn encode_pkcs8(key: &ssh_key::PrivateKey) -> Result<Vec<u8>, Error> {
             let sk: rsa::PrivateKey = pair.try_into()?;
             sk.to_pkcs8_der()?.as_bytes().to_vec()
         }
+        #[cfg(feature = "openssl")]
+        ssh_key::private::KeypairData::Ecdsa(pair) => openssl_backend::ecdsa_keypair_to_pkcs8_der(pair)?,
+        #[cfg(not(feature = "openssl"))]
         ssh_key::private::KeypairData::Ecdsa(pair) => match pair {
             EcdsaKeypair::NistP256 { private, .. } => {
                 let sk = p256::SecretKey::from_slice(private.as_slice())?;
