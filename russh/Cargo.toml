@@ -40,9 +40,9 @@ delegate.workspace = true
 der = "0.8"
 des = { version = "0.9", optional = true }
 digest.workspace = true
-ecdsa = "0.17"
+ecdsa = { version = "0.17", optional = true }
 ed25519-dalek = { version = "3", optional = true, features = ["alloc", "rand_core", "pkcs8"] }
-elliptic-curve = { version = "0.14", features = ["ecdh"] }
+elliptic-curve = { version = "0.14", optional = true, features = ["ecdh"] }
 enum_dispatch = "0.3.13"
 flate2 = { version = "1.0.15", optional = true }
 futures.workspace = true
@@ -59,9 +59,9 @@ ml-kem = "0.3"
 module-lattice = "0.2"
 num-bigint = { version = "0.5", features = ["rand_0_10"] }
 openssl = { version = "0.10", optional = true }
-p256 = { version = "0.14", features = ["ecdh"] }
-p384 = { version = "0.14", features = ["ecdh"] }
-p521 = { version = "0.14", features = ["ecdh"] }
+p256 = { version = "0.14", optional = true, features = ["ecdh"] }
+p384 = { version = "0.14", optional = true, features = ["ecdh"] }
+p521 = { version = "0.14", optional = true, features = ["ecdh"] }
 pbkdf2 = "0.13"
 pkcs1 = { version = "0.8", optional = true }
 pkcs5 = "0.8"
@@ -115,10 +115,25 @@ tokio = { workspace = true, features = [
 default = ["flate2", "aws-lc-rs", "rsa"]
 # Crypto backends: enable at least one of `aws-lc-rs`, `ring`, or `openssl`.
 # `ed25519-dalek`/`curve25519-dalek` back Ed25519 PKCS#8 parsing/encoding and
-# the X25519 KEX for the aws-lc-rs/ring backends; the `openssl` backend has
-# its own OpenSSL-based path for both (see keys/format/pkcs8.rs and
-# kex/x25519.rs) and doesn't need either crate.
-aws-lc-rs = ["dep:aws-lc-rs", "dep:ed25519-dalek", "dep:curve25519-dalek", "ssh-key/ed25519"] # Default crypto backend.
+# the X25519 KEX for the aws-lc-rs/ring backends; `p256`/`p384`/`p521`/
+# `ecdsa`/`elliptic-curve` back the NIST-curve (ecdh-sha2-nistp*) KEX for
+# those same backends. The `openssl` backend has its own OpenSSL-based path
+# for all of these (see keys/format/pkcs8.rs, kex/x25519.rs,
+# kex/ecdh_nistp.rs) and doesn't need any of those crates.
+aws-lc-rs = [
+    "dep:aws-lc-rs",
+    "dep:ed25519-dalek",
+    "dep:curve25519-dalek",
+    "dep:p256",
+    "dep:p384",
+    "dep:p521",
+    "dep:ecdsa",
+    "dep:elliptic-curve",
+    "ssh-key/ed25519",
+    "ssh-key/p256",
+    "ssh-key/p384",
+    "ssh-key/p521",
+] # Default crypto backend.
 # Danger: 3DES cipher is insecure.
 des = ["dep:des"]
 # Danger: DSA algorithm is insecure.
@@ -131,7 +146,20 @@ dsa = ["ssh-key/dsa"]
 # `openssl` (same precedence the existing aws-lc-rs/ring pair already
 # has in cipher/mod.rs and cipher/gcm.rs).
 openssl = ["dep:openssl", "ssh-key/openssl"]
-ring = ["dep:ring", "dep:ed25519-dalek", "dep:curve25519-dalek", "ssh-key/ed25519"] # Alternative crypto backend.
+ring = [
+    "dep:ring",
+    "dep:ed25519-dalek",
+    "dep:curve25519-dalek",
+    "dep:p256",
+    "dep:p384",
+    "dep:p521",
+    "dep:ecdsa",
+    "dep:elliptic-curve",
+    "ssh-key/ed25519",
+    "ssh-key/p256",
+    "ssh-key/p384",
+    "ssh-key/p521",
+] # Alternative crypto backend.
 rsa = ["dep:rsa", "dep:pkcs1", "ssh-key/rsa"]
 serde = ["ssh-key/serde"]
 _bench = ["dep:criterion"]

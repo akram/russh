@@ -19,9 +19,6 @@ sha2 = { version = "0.11", features = ["oid"] }
 signature = "3"
 ssh-encoding = { version = "0.3", features = ["bytes"] }
 ssh-key = { version = "=0.7.0-rc.12", features = [
-    "p256",
-    "p384",
-    "p521",
     "encryption",
     "ppk",
     "sha1",

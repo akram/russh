@@ -104,6 +104,7 @@ pub enum Error {
     #[error("Invalid Ed25519 key data")]
     Ed25519KeyError(#[from] ed25519_dalek::SignatureError),
     /// The type of the key is unsupported
+    #[cfg(not(feature = "openssl"))]
     #[error("Invalid ECDSA key data")]
     EcdsaKeyError(#[from] p256::elliptic_curve::Error),
     /// The key is encrypted (should supply a password?)

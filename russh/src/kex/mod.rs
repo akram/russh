@@ -38,10 +38,8 @@ use dh::{
 use digest::Digest;
 use ecdh_nistp::{EcdhNistP256KexType, EcdhNistP384KexType, EcdhNistP521KexType};
 use enum_dispatch::enum_dispatch;
+use ecdh_nistp::{NistP256Curve, NistP384Curve, NistP521Curve};
 use hybrid_mlkem::MlKem768X25519KexType;
-use p256::NistP256;
-use p384::NistP384;
-use p521::NistP521;
 use sha1::Sha1;
 use sha2::{Sha256, Sha384, Sha512};
 use ssh_encoding::{Encode, Writer};
@@ -143,9 +141,9 @@ pub(crate) enum KexAlgorithm {
     DhGroupKexSha256(dh::DhGroupKex<Sha256>),
     DhGroupKexSha512(dh::DhGroupKex<Sha512>),
     Curve25519Kex(curve25519::Curve25519Kex),
-    EcdhNistP256Kex(ecdh_nistp::EcdhNistPKex<NistP256, Sha256>),
-    EcdhNistP384Kex(ecdh_nistp::EcdhNistPKex<NistP384, Sha384>),
-    EcdhNistP521Kex(ecdh_nistp::EcdhNistPKex<NistP521, Sha512>),
+    EcdhNistP256Kex(ecdh_nistp::EcdhNistPKex<NistP256Curve, Sha256>),
+    EcdhNistP384Kex(ecdh_nistp::EcdhNistPKex<NistP384Curve, Sha384>),
+    EcdhNistP521Kex(ecdh_nistp::EcdhNistPKex<NistP521Curve, Sha512>),
     MlKem768X25519Kex(hybrid_mlkem::MlKem768X25519Kex),
     None(none::NoneKexAlgorithm),
 }
