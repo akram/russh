@@ -16,6 +16,7 @@ use ssh_key::private::{EcdsaKeypair, KeypairData};
 use ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
 
 use crate::keys::Error;
+#[cfg(not(feature = "openssl"))]
 use crate::keys::key::safe_rng;
 
 // NIST curve OIDs (SEC2 / RFC 5480), hardcoded here instead of read via the

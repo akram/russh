@@ -590,11 +590,11 @@ mod tests {
         assert_eq!(rc_ciphertext, ossl_ciphertext);
     }
 
-    /// Cross-check against RustCrypto's `cbc::Decryptor<Aes128>`.
+    /// Cross-check against RustCrypto's `cbc::Encryptor<Aes128>`.
     #[test]
     fn aes_128_cbc_openssl_matches_rustcrypto() {
         use aes::Aes128;
-        use cbc::cipher::{BlockEncryptMut, KeyIvInit};
+        use cipher::{Block, BlockModeEncrypt, KeyIvInit};
 
         let key = [0x11u8; 16];
         let iv = [0x22u8; 16];
@@ -602,12 +602,9 @@ mod tests {
 
         let mut rc_encryptor = cbc::Encryptor::<Aes128>::new(&key.into(), &iv.into());
         for chunk in plaintext.chunks_exact_mut(16) {
-            #[allow(clippy::unwrap_used)]
-            let block = <&mut cipher::generic_array::GenericArray<u8, cipher::consts::U16>>::try_from(
-                &mut *chunk,
-            )
-            .unwrap();
-            rc_encryptor.encrypt_block_mut(block);
+            #[allow(clippy::unwrap_used, clippy::expect_used)]
+            let block = <&mut Block<Aes128>>::try_from(&mut *chunk).unwrap();
+            rc_encryptor.encrypt_block(block);
         }
 
         let mut ossl_ciphertext = [0x33u8; 32];

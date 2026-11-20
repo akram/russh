@@ -18,6 +18,7 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::Debug;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring", feature = "des"))]
 use std::marker::PhantomData;
 use std::num::Wrapping;
 use std::sync::LazyLock;
