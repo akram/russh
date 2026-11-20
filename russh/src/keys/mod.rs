@@ -140,7 +140,7 @@ pub enum Error {
     #[error(transparent)]
     IO(#[from] std::io::Error),
 
-    #[cfg(feature = "rsa")]
+    #[cfg(all(feature = "rsa", not(feature = "openssl")))]
     #[error("Rsa: {0}")]
     Rsa(#[from] rsa::Error),
 

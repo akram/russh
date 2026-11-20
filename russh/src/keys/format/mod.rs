@@ -128,7 +128,13 @@ pub fn encode_pkcs8_pem_encrypted<W: Write>(
     Ok(())
 }
 
-#[cfg(feature = "rsa")]
+#[cfg(all(feature = "rsa", feature = "openssl"))]
+fn decode_rsa_pkcs1_der(secret: &[u8]) -> Result<ssh_key::private::RsaKeypair, Error> {
+    let sk = pkcs1::RsaPrivateKeyRef::try_from(secret)?;
+    pkcs8::openssl_backend::rsa_keypair_from_pkcs1(&sk)
+}
+
+#[cfg(all(feature = "rsa", not(feature = "openssl")))]
 fn decode_rsa_pkcs1_der(secret: &[u8]) -> Result<ssh_key::private::RsaKeypair, Error> {
     use std::convert::TryInto;
 

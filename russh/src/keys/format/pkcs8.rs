@@ -186,7 +186,7 @@ where
 // for the NIST-curve KEX (`kex/ecdh_nistp.rs`), which has no OpenSSL backend
 // yet.
 #[cfg(feature = "openssl")]
-mod openssl_backend {
+pub(crate) mod openssl_backend {
     use openssl::bn::{BigNum, BigNumContext};
     use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
     use openssl::nid::Nid;
