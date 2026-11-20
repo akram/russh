@@ -64,8 +64,12 @@ p384 = { version = "0.14", optional = true, features = ["ecdh"] }
 p521 = { version = "0.14", optional = true, features = ["ecdh"] }
 pbkdf2 = "0.13"
 pkcs1 = { version = "0.8", optional = true }
-pkcs5 = "0.8"
-pkcs8 = { version = "0.11", features = ["encryption", "std"] }
+# `encryption` (pulls `pkcs5`/`pbes2`: aes/aes-gcm/cbc/ctr) is only needed by
+# the RustCrypto-backed passphrase-protected PKCS#8 encrypt/decrypt path in
+# keys/format/pkcs8.rs. The `openssl` backend has its own path there via
+# `PKey::private_key_{to,from}_pkcs8_passphrase` and doesn't need it.
+pkcs5 = { version = "0.8", optional = true }
+pkcs8 = { version = "0.11", default-features = false, features = ["std"] }
 polyval = "0.7.1" # only pinned due to a cargo-minimal-versions failure in 0.7.0
 rand.workspace = true
 rand_core = { version = "0.10.0" }
@@ -133,6 +137,8 @@ aws-lc-rs = [
     "ssh-key/p256",
     "ssh-key/p384",
     "ssh-key/p521",
+    "dep:pkcs5",
+    "pkcs8/encryption",
 ] # Default crypto backend.
 # Danger: 3DES cipher is insecure.
 des = ["dep:des"]
@@ -159,6 +165,8 @@ ring = [
     "ssh-key/p256",
     "ssh-key/p384",
     "ssh-key/p521",
+    "dep:pkcs5",
+    "pkcs8/encryption",
 ] # Alternative crypto backend.
 rsa = ["dep:rsa", "dep:pkcs1", "ssh-key/rsa"]
 serde = ["ssh-key/serde"]

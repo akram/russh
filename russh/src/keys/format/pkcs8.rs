@@ -39,12 +39,27 @@ pub fn decode_pkcs8(
     ciphertext: &[u8],
     password: Option<&[u8]>,
 ) -> Result<ssh_key::PrivateKey, Error> {
-    let doc = SecretDocument::try_from(ciphertext)?;
     let doc = if let Some(password) = password {
-        doc.decode_msg::<pkcs8::EncryptedPrivateKeyInfoRef<'_>>()?
-            .decrypt(password)?
+        // OpenSSL decrypts (PBES1/PBES2, any cipher it supports) and
+        // re-encodes as a plain PKCS#8 `PrivateKeyInfo`, so the rest of this
+        // function's parsing is unchanged either way.
+        #[cfg(feature = "openssl")]
+        {
+            let pkey = openssl::pkey::PKey::private_key_from_pkcs8_passphrase(ciphertext, password)
+                .map_err(|_| Error::CouldNotReadKey)?;
+            let der = pkey
+                .private_key_to_pkcs8()
+                .map_err(|_| Error::CouldNotReadKey)?;
+            SecretDocument::try_from(der.as_slice())?
+        }
+        #[cfg(not(feature = "openssl"))]
+        {
+            SecretDocument::try_from(ciphertext)?
+                .decode_msg::<pkcs8::EncryptedPrivateKeyInfoRef<'_>>()?
+                .decrypt(password)?
+        }
     } else {
-        doc
+        SecretDocument::try_from(ciphertext)?
     };
 
     if let Ok(key) = doc.decode_msg::<sec1::EcPrivateKey>() {
@@ -407,27 +422,43 @@ mod explicit_curve_params {
 }
 
 /// Encode into a password-protected PKCS#8-encoded private key.
+///
+/// `rounds` only applies to the non-`openssl` backends; OpenSSL's
+/// `PKey::private_key_to_pkcs8_passphrase` has no equivalent knob and uses
+/// its own library default PBKDF2 iteration count.
 pub fn encode_pkcs8_encrypted(
     pass: &[u8],
     rounds: u32,
     key: &PrivateKey,
 ) -> Result<Vec<u8>, Error> {
     let pvi_bytes = encode_pkcs8(key)?;
-    let pvi = PrivateKeyInfoRef::try_from(pvi_bytes.as_slice())?;
 
-    use rand_core::Rng;
-    let mut rng = safe_rng();
-    let mut salt = [0; 32];
-    rng.fill_bytes(&mut salt);
-    let mut iv = [0; 16];
-    rng.fill_bytes(&mut iv);
+    #[cfg(feature = "openssl")]
+    {
+        let _ = rounds;
+        let pkey = openssl::pkey::PKey::private_key_from_pkcs8(&pvi_bytes)
+            .map_err(|_| Error::CouldNotReadKey)?;
+        pkey.private_key_to_pkcs8_passphrase(openssl::symm::Cipher::aes_256_cbc(), pass)
+            .map_err(|_| Error::InvalidParameters)
+    }
+    #[cfg(not(feature = "openssl"))]
+    {
+        let pvi = PrivateKeyInfoRef::try_from(pvi_bytes.as_slice())?;
 
-    let doc = pvi.encrypt_with_params(
-        pkcs5::pbes2::Parameters::generate_pbkdf2_sha256_aes256cbc(rounds, &salt, iv)
-            .map_err(|_| Error::InvalidParameters)?,
-        pass,
-    )?;
-    Ok(doc.as_bytes().to_vec())
+        use rand_core::Rng;
+        let mut rng = safe_rng();
+        let mut salt = [0; 32];
+        rng.fill_bytes(&mut salt);
+        let mut iv = [0; 16];
+        rng.fill_bytes(&mut iv);
+
+        let doc = pvi.encrypt_with_params(
+            pkcs5::pbes2::Parameters::generate_pbkdf2_sha256_aes256cbc(rounds, &salt, iv)
+                .map_err(|_| Error::InvalidParameters)?,
+            pass,
+        )?;
+        Ok(doc.as_bytes().to_vec())
+    }
 }
 
 /// Encode into a PKCS#8-encoded private key.
