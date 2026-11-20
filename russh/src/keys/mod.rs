@@ -61,7 +61,7 @@ use std::io::Read;
 use std::path::Path;
 use std::string::FromUtf8Error;
 
-use cipher::inout::PadError;
+use inout::PadError;
 use data_encoding::BASE64_MIME;
 use thiserror::Error;
 
@@ -148,7 +148,7 @@ pub enum Error {
     Pad(#[from] PadError),
 
     #[error(transparent)]
-    Unpad(#[from] aes::cipher::block_padding::Error),
+    Unpad(#[from] block_padding::Error),
 
     #[error("Base64 decoding error: {0}")]
     Decode(#[from] data_encoding::DecodeError),
