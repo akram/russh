@@ -284,7 +284,7 @@ pub(crate) mod openssl_backend {
     /// params match) that the RustCrypto backend's `rsa::PrivateKey::
     /// from_components` performs internally.
     #[cfg(feature = "rsa")]
-    pub(super) fn rsa_keypair_from_pkcs1(
+    pub(crate) fn rsa_keypair_from_pkcs1(
         sk: &pkcs1::RsaPrivateKeyRef<'_>,
     ) -> Result<ssh_key::private::RsaKeypair, Error> {
         use openssl::rsa::Rsa;
