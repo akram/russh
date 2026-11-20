@@ -151,6 +151,7 @@ aws-lc-rs = [
     "dep:aes",
     "dep:cbc",
     "dep:ctr",
+    "dep:rsa",
 ] # Default crypto backend.
 # Danger: 3DES cipher is insecure. Independent of the aws-lc-rs/ring/openssl
 # choice above: 3des-cbc has no OpenSSL path here, so it keeps the
@@ -185,8 +186,17 @@ ring = [
     "dep:aes",
     "dep:cbc",
     "dep:ctr",
+    "dep:rsa",
 ] # Alternative crypto backend.
-rsa = ["dep:rsa", "dep:pkcs1", "ssh-key/rsa"]
+# Backend-agnostic: RSA key *type* support (ssh-key's own Mpint-based
+# storage, PKCS#1 parsing via pkcs1). The RustCrypto `rsa` crate itself is
+# forwarded from `aws-lc-rs`/`ring` below, not from here: those are the
+# only backends whose RSA sign/verify/keygen/format code still needs it
+# (the `openssl` backend has its own path for all of it). This does mean
+# `aws-lc-rs`/`ring` alone (without `rsa`) also pull in `dep:rsa` now, as
+# an unused dependency -- a build-size quirk, not a behavior change, for
+# a combination this fork doesn't otherwise ship.
+rsa = ["dep:pkcs1", "ssh-key/rsa"]
 serde = ["ssh-key/serde"]
 _bench = ["dep:criterion"]
 
