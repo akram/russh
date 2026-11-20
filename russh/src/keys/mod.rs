@@ -61,7 +61,7 @@ use std::io::Read;
 use std::path::Path;
 use std::string::FromUtf8Error;
 
-use aes::cipher::inout::PadError;
+use cipher::inout::PadError;
 use data_encoding::BASE64_MIME;
 use thiserror::Error;
 

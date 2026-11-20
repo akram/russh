@@ -262,9 +262,11 @@ impl super::SealingKey for OsslCbcSealingKey {
                 )
                 .expect("CBC encryption of block-aligned data cannot fail");
                 #[allow(clippy::unwrap_used)]
-                self.iv = plaintext_in_ciphertext_out[plaintext_in_ciphertext_out.len() - 16..]
+                let new_iv: [u8; 16] = plaintext_in_ciphertext_out
+                    [plaintext_in_ciphertext_out.len() - 16..]
                     .try_into()
                     .unwrap();
+                self.iv = new_iv;
             }
             self.mac
                 .compute(sequence_number, plaintext_in_ciphertext_out, tag_out);
@@ -281,9 +283,11 @@ impl super::SealingKey for OsslCbcSealingKey {
             )
             .expect("CBC encryption of block-aligned data cannot fail");
             #[allow(clippy::unwrap_used)]
-            self.iv = plaintext_in_ciphertext_out[plaintext_in_ciphertext_out.len() - 16..]
+            let new_iv: [u8; 16] = plaintext_in_ciphertext_out
+                [plaintext_in_ciphertext_out.len() - 16..]
                 .try_into()
                 .unwrap();
+            self.iv = new_iv;
         }
     }
 }
