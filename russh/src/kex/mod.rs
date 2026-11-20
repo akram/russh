@@ -31,16 +31,14 @@ use curve25519::Curve25519KexType;
 use delegate::delegate;
 use dh::groups::DhGroup;
 use dh::{
-    DhGexSha1KexType, DhGexSha256KexType, DhGroup1Sha1KexType, DhGroup14Sha1KexType,
-    DhGroup14Sha256KexType, DhGroup15Sha512KexType, DhGroup16Sha512KexType, DhGroup17Sha512KexType,
-    DhGroup18Sha512KexType,
+    DhGexSha256KexType, DhGroup14Sha256KexType, DhGroup15Sha512KexType, DhGroup16Sha512KexType,
+    DhGroup17Sha512KexType, DhGroup18Sha512KexType,
 };
 use digest::Digest;
 use ecdh_nistp::{EcdhNistP256KexType, EcdhNistP384KexType, EcdhNistP521KexType};
 use enum_dispatch::enum_dispatch;
 use ecdh_nistp::{NistP256Curve, NistP384Curve, NistP521Curve};
 use hybrid_mlkem::MlKem768X25519KexType;
-use sha1::Sha1;
 use sha2::{Sha256, Sha384, Sha512};
 use ssh_encoding::{Encode, Writer};
 use ssh_key::{Certificate, PublicKey};
@@ -137,7 +135,6 @@ pub(crate) enum KexProgress<T> {
 
 #[enum_dispatch(KexAlgorithmImplementor)]
 pub(crate) enum KexAlgorithm {
-    DhGroupKexSha1(dh::DhGroupKex<Sha1>),
     DhGroupKexSha256(dh::DhGroupKex<Sha256>),
     DhGroupKexSha512(dh::DhGroupKex<Sha512>),
     Curve25519Kex(curve25519::Curve25519Kex),
@@ -244,14 +241,8 @@ pub const CURVE25519: Name = Name("curve25519-sha256");
 pub const CURVE25519_PRE_RFC_8731: Name = Name("curve25519-sha256@libssh.org");
 /// `mlkem768x25519-sha256`
 pub const MLKEM768X25519_SHA256: Name = Name("mlkem768x25519-sha256");
-/// `diffie-hellman-group-exchange-sha1`.
-pub const DH_GEX_SHA1: Name = Name("diffie-hellman-group-exchange-sha1");
 /// `diffie-hellman-group-exchange-sha256`.
 pub const DH_GEX_SHA256: Name = Name("diffie-hellman-group-exchange-sha256");
-/// `diffie-hellman-group1-sha1`
-pub const DH_G1_SHA1: Name = Name("diffie-hellman-group1-sha1");
-/// `diffie-hellman-group14-sha1`
-pub const DH_G14_SHA1: Name = Name("diffie-hellman-group14-sha1");
 /// `diffie-hellman-group14-sha256`
 pub const DH_G14_SHA256: Name = Name("diffie-hellman-group14-sha256");
 /// `diffie-hellman-group15-sha512`
@@ -280,10 +271,7 @@ pub const EXTENSION_OPENSSH_STRICT_KEX_AS_CLIENT: Name = Name("kex-strict-c-v00@
 pub const EXTENSION_OPENSSH_STRICT_KEX_AS_SERVER: Name = Name("kex-strict-s-v00@openssh.com");
 
 const _CURVE25519: Curve25519KexType = Curve25519KexType {};
-const _DH_GEX_SHA1: DhGexSha1KexType = DhGexSha1KexType {};
 const _DH_GEX_SHA256: DhGexSha256KexType = DhGexSha256KexType {};
-const _DH_G1_SHA1: DhGroup1Sha1KexType = DhGroup1Sha1KexType {};
-const _DH_G14_SHA1: DhGroup14Sha1KexType = DhGroup14Sha1KexType {};
 const _DH_G14_SHA256: DhGroup14Sha256KexType = DhGroup14Sha256KexType {};
 const _DH_G15_SHA512: DhGroup15Sha512KexType = DhGroup15Sha512KexType {};
 const _DH_G16_SHA512: DhGroup16Sha512KexType = DhGroup16Sha512KexType {};
@@ -299,10 +287,7 @@ pub const ALL_KEX_ALGORITHMS: &[&Name] = &[
     &MLKEM768X25519_SHA256,
     &CURVE25519,
     &CURVE25519_PRE_RFC_8731,
-    &DH_GEX_SHA1,
     &DH_GEX_SHA256,
-    &DH_G1_SHA1,
-    &DH_G14_SHA1,
     &DH_G14_SHA256,
     &DH_G15_SHA512,
     &DH_G16_SHA512,
@@ -320,15 +305,12 @@ pub(crate) static KEXES: LazyLock<HashMap<&'static Name, &(dyn KexType + Send + 
         h.insert(&MLKEM768X25519_SHA256, &_MLKEM768X25519_SHA256);
         h.insert(&CURVE25519, &_CURVE25519);
         h.insert(&CURVE25519_PRE_RFC_8731, &_CURVE25519);
-        h.insert(&DH_GEX_SHA1, &_DH_GEX_SHA1);
         h.insert(&DH_GEX_SHA256, &_DH_GEX_SHA256);
         h.insert(&DH_G18_SHA512, &_DH_G18_SHA512);
         h.insert(&DH_G17_SHA512, &_DH_G17_SHA512);
         h.insert(&DH_G16_SHA512, &_DH_G16_SHA512);
         h.insert(&DH_G15_SHA512, &_DH_G15_SHA512);
         h.insert(&DH_G14_SHA256, &_DH_G14_SHA256);
-        h.insert(&DH_G14_SHA1, &_DH_G14_SHA1);
-        h.insert(&DH_G1_SHA1, &_DH_G1_SHA1);
         h.insert(&ECDH_SHA2_NISTP256, &_ECDH_SHA2_NISTP256);
         h.insert(&ECDH_SHA2_NISTP384, &_ECDH_SHA2_NISTP384);
         h.insert(&ECDH_SHA2_NISTP521, &_ECDH_SHA2_NISTP521);

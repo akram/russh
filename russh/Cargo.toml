@@ -53,7 +53,11 @@ generic-array = "1.3.3"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 ghash = "0.6.0" # only pinned due to a cargo-minimal-versions failure in 0.6.0-rc.3
 hex-literal = "1"
-hmac.workspace = true
+# Only needed for hmac-sha1/hmac-sha1-etm and known_hosts.rs's hashed
+# hostname matching on the aws-lc-rs/ring backends -- the openssl backend
+# has its own path for both (cipher/openssl_block.rs's sibling
+# mac/openssl_hmac.rs, and a dedicated branch in known_hosts.rs).
+hmac = { workspace = true, optional = true }
 inout = { version = "0.2", features = ["block-padding"] }
 keccak = "0.2.0"
 log.workspace = true
@@ -85,7 +89,8 @@ russh-util = { version = "0.52.0", path = "../russh-util" }
 salsa20 = "0.11.0"
 scrypt = "0.12.0"
 sec1 = { version = "0.8", features = ["der"] }
-sha1.workspace = true
+# Only needed on the aws-lc-rs/ring backends; see the `hmac` comment above.
+sha1 = { workspace = true, optional = true }
 sha2.workspace = true
 signature.workspace = true
 spki = "0.8"
@@ -99,12 +104,15 @@ universal-hash = "0.6.1" # only pinned due to a cargo-minimal-versions failure i
 zeroize = "1.7"
 
 [dev-dependencies]
-# Cross-checked against the OpenSSL backend's own CBC/CTR implementation in
-# cipher/openssl_block.rs's tests, regardless of which release feature set
-# is active; never shipped (dev-only).
+# Cross-checked against the OpenSSL backend's own CBC/CTR/HMAC
+# implementations in cipher/openssl_block.rs's and mac/openssl_hmac.rs's
+# own tests, regardless of which release feature set is active; never
+# shipped (dev-only).
 aes.workspace = true
 cbc = "0.2"
 ctr = "0.10"
+hmac.workspace = true
+sha1.workspace = true
 anyhow = "1.0.4"
 clap = { version = "4", features = ["derive"] }
 env_logger.workspace = true
@@ -153,6 +161,8 @@ aws-lc-rs = [
     "dep:rsa",
     "ssh-key/rsa-rust-crypto",
     "ssh-key/aes-rust-crypto",
+    "dep:hmac",
+    "dep:sha1",
 ] # Default crypto backend.
 # Danger: 3DES cipher is insecure. Independent of the aws-lc-rs/ring/openssl
 # choice above: 3des-cbc has no OpenSSL path here, so it keeps the
@@ -190,6 +200,8 @@ ring = [
     "dep:rsa",
     "ssh-key/rsa-rust-crypto",
     "ssh-key/aes-rust-crypto",
+    "dep:hmac",
+    "dep:sha1",
 ] # Alternative crypto backend.
 # Backend-agnostic: RSA key *type* support (ssh-key's own Mpint-based
 # storage, PKCS#1 parsing via pkcs1). The RustCrypto `rsa` crate itself is

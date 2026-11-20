@@ -6,13 +6,10 @@ use digest::Digest;
 use groups::DH;
 use log::{error, trace};
 use num_bigint::BigUint;
-use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use ssh_encoding::{Decode, Encode, Reader, Writer};
 
-use self::groups::{
-    DhGroup, DH_GROUP1, DH_GROUP14, DH_GROUP15, DH_GROUP16, DH_GROUP17, DH_GROUP18,
-};
+use self::groups::{DhGroup, DH_GROUP14, DH_GROUP15, DH_GROUP16, DH_GROUP17, DH_GROUP18};
 use super::{compute_keys, KexAlgorithm, KexAlgorithmImplementor, KexType, SharedSecret};
 use crate::client::GexParams;
 use crate::session::Exchange;
@@ -42,35 +39,11 @@ impl KexType for DhGroup18Sha512KexType {
     }
 }
 
-pub(crate) struct DhGexSha1KexType {}
-
-impl KexType for DhGexSha1KexType {
-    fn make(&self) -> KexAlgorithm {
-        DhGroupKex::<Sha1>::new(None).into()
-    }
-}
-
 pub(crate) struct DhGexSha256KexType {}
 
 impl KexType for DhGexSha256KexType {
     fn make(&self) -> KexAlgorithm {
         DhGroupKex::<Sha256>::new(None).into()
-    }
-}
-
-pub(crate) struct DhGroup1Sha1KexType {}
-
-impl KexType for DhGroup1Sha1KexType {
-    fn make(&self) -> KexAlgorithm {
-        DhGroupKex::<Sha1>::new(Some(&DH_GROUP1)).into()
-    }
-}
-
-pub(crate) struct DhGroup14Sha1KexType {}
-
-impl KexType for DhGroup14Sha1KexType {
-    fn make(&self) -> KexAlgorithm {
-        DhGroupKex::<Sha1>::new(Some(&DH_GROUP14)).into()
     }
 }
 

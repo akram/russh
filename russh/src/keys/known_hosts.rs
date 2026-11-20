@@ -5,11 +5,48 @@ use std::path::{Path, PathBuf};
 use std::env;
 
 use data_encoding::BASE64_MIME;
+#[cfg(not(feature = "openssl"))]
 use hmac::{Hmac, KeyInit, Mac};
 use log::debug;
+#[cfg(not(feature = "openssl"))]
 use sha1::Sha1;
 
 use crate::keys::Error;
+
+/// HMAC-SHA1 verification for OpenSSH's hashed `known_hosts` hostnames
+/// (the `|1|salt|hash|` format): `salt` is the HMAC key, `host` the
+/// message, `expected` the tag to check against. Not a wire-negotiated
+/// algorithm, so it's backend-selectable independent of the KEX/MAC
+/// algorithms offered to a peer.
+#[cfg(feature = "openssl")]
+fn hashed_hostname_matches(salt: &[u8], host: &str, expected: &[u8]) -> bool {
+    use openssl::hash::MessageDigest;
+    use openssl::pkey::PKey;
+    use openssl::sign::Signer;
+    use subtle::ConstantTimeEq;
+
+    let Ok(pkey) = PKey::hmac(salt) else {
+        return false;
+    };
+    let Ok(mut signer) = Signer::new(MessageDigest::sha1(), &pkey) else {
+        return false;
+    };
+    if signer.update(host.as_bytes()).is_err() {
+        return false;
+    }
+    let Ok(tag) = signer.sign_to_vec() else {
+        return false;
+    };
+    tag.ct_eq(expected).into()
+}
+
+#[cfg(not(feature = "openssl"))]
+fn hashed_hostname_matches(salt: &[u8], host: &str, expected: &[u8]) -> bool {
+    let Ok(hmac) = Hmac::<Sha1>::new_from_slice(salt) else {
+        return false;
+    };
+    hmac.chain_update(host).verify_slice(expected).is_ok()
+}
 
 /// Check whether the host is known, from its standard location.
 pub fn check_known_hosts(
@@ -116,9 +153,7 @@ fn match_hostname(host: &str, pattern: &str) -> bool {
             let Some(Ok(hash)) = parts.next().map(|p| BASE64_MIME.decode(p.as_bytes())) else {
                 continue;
             };
-            if let Ok(hmac) = Hmac::<Sha1>::new_from_slice(&salt)
-                && hmac.chain_update(host).verify_slice(&hash).is_ok()
-            {
+            if hashed_hostname_matches(&salt, host, &hash) {
                 return true;
             }
         } else if host == entry {

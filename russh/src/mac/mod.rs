@@ -20,9 +20,10 @@ use std::sync::LazyLock;
 
 use delegate::delegate;
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
-use digest::typenum::{U32, U64};
-use digest::typenum::U20;
+use digest::typenum::{U20, U32, U64};
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use hmac::Hmac;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use sha1::Sha1;
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use sha2::{Sha256, Sha512};
@@ -92,6 +93,7 @@ pub const HMAC_SHA256_ETM: Name = Name("hmac-sha2-256-etm@openssh.com");
 pub const HMAC_SHA512_ETM: Name = Name("hmac-sha2-512-etm@openssh.com");
 
 pub(crate) static _NONE: NoMacAlgorithm = NoMacAlgorithm {};
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 pub(crate) static _HMAC_SHA1: CryptoMacAlgorithm<Hmac<Sha1>, U20> =
     CryptoMacAlgorithm(PhantomData, PhantomData);
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
@@ -100,6 +102,7 @@ pub(crate) static _HMAC_SHA256: CryptoMacAlgorithm<Hmac<Sha256>, U32> =
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 pub(crate) static _HMAC_SHA512: CryptoMacAlgorithm<Hmac<Sha512>, U64> =
     CryptoMacAlgorithm(PhantomData, PhantomData);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 pub(crate) static _HMAC_SHA1_ETM: CryptoEtmMacAlgorithm<Hmac<Sha1>, U20> =
     CryptoEtmMacAlgorithm(PhantomData, PhantomData);
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
@@ -109,6 +112,16 @@ pub(crate) static _HMAC_SHA256_ETM: CryptoEtmMacAlgorithm<Hmac<Sha256>, U32> =
 pub(crate) static _HMAC_SHA512_ETM: CryptoEtmMacAlgorithm<Hmac<Sha512>, U64> =
     CryptoEtmMacAlgorithm(PhantomData, PhantomData);
 
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+pub(crate) static _HMAC_SHA1: OsslHmacAlgorithm = OsslHmacAlgorithm {
+    digest: self::openssl_hmac::HmacDigest::Sha1,
+    key_len: 20,
+};
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+pub(crate) static _HMAC_SHA1_ETM: OsslEtmHmacAlgorithm = OsslEtmHmacAlgorithm {
+    digest: self::openssl_hmac::HmacDigest::Sha1,
+    key_len: 20,
+};
 #[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
 pub(crate) static _HMAC_SHA256: OsslHmacAlgorithm = OsslHmacAlgorithm {
     digest: self::openssl_hmac::HmacDigest::Sha256,
