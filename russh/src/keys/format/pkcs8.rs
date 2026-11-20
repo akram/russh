@@ -85,7 +85,13 @@ pub fn decode_pkcs8(
 
 fn pkcs8_pki_into_keypair_data(pki: PrivateKeyInfoRef<'_>) -> Result<KeypairData, Error> {
     // Temporary if {} due to multiple const_oid crate versions
-    #[cfg(feature = "rsa")]
+    #[cfg(all(feature = "rsa", feature = "openssl"))]
+    if pki.algorithm.oid.as_bytes() == pkcs1::ALGORITHM_OID.as_bytes() {
+        let sk = &pkcs1::RsaPrivateKeyRef::try_from(pki.private_key)?;
+        return Ok(KeypairData::Rsa(openssl_backend::rsa_keypair_from_pkcs1(sk)?));
+    }
+
+    #[cfg(all(feature = "rsa", not(feature = "openssl")))]
     if pki.algorithm.oid.as_bytes() == pkcs1::ALGORITHM_OID.as_bytes() {
         let sk = &pkcs1::RsaPrivateKeyRef::try_from(pki.private_key)?;
         let pk = rsa::PrivateKey::from_components(
@@ -267,6 +273,95 @@ mod openssl_backend {
         private_key_bytes: &[u8],
     ) -> Result<EcdsaKeypair, Error> {
         ec_keypair_from_scalar(curve_oid, private_key_bytes, None)
+    }
+
+    /// Build an [`ssh_key::private::RsaKeypair`] from a parsed PKCS#1
+    /// `RsaPrivateKey`. `ssh_key`'s own `RsaPrivateKey`/`RsaPublicKey` only
+    /// store big-endian byte strings (`Mpint`), so this needs no RustCrypto
+    /// `rsa` crate type for storage; `RSA_check_key` gives the same
+    /// consistency validation (n = p*q, d*e ≡ 1 mod lcm(p-1,q-1), CRT
+    /// params match) that the RustCrypto backend's `rsa::PrivateKey::
+    /// from_components` performs internally.
+    #[cfg(feature = "rsa")]
+    pub(super) fn rsa_keypair_from_pkcs1(
+        sk: &pkcs1::RsaPrivateKeyRef<'_>,
+    ) -> Result<ssh_key::private::RsaKeypair, Error> {
+        use openssl::rsa::Rsa;
+
+        let bn = |bytes: &[u8]| BigNum::from_slice(bytes).map_err(|_| Error::CouldNotReadKey);
+        let rsa = Rsa::from_private_components(
+            bn(sk.modulus.as_bytes())?,
+            bn(sk.public_exponent.as_bytes())?,
+            bn(sk.private_exponent.as_bytes())?,
+            bn(sk.prime1.as_bytes())?,
+            bn(sk.prime2.as_bytes())?,
+            bn(sk.exponent1.as_bytes())?,
+            bn(sk.exponent2.as_bytes())?,
+            bn(sk.coefficient.as_bytes())?,
+        )
+        .map_err(|_| Error::CouldNotReadKey)?;
+        if !rsa.check_key().unwrap_or(false) {
+            return Err(Error::CouldNotReadKey);
+        }
+
+        let public = ssh_key::public::RsaPublicKey::new(
+            ssh_key::Mpint::from_positive_bytes(sk.public_exponent.as_bytes()),
+            ssh_key::Mpint::from_positive_bytes(sk.modulus.as_bytes()),
+        )?;
+        let private = ssh_key::private::RsaPrivateKey::new(
+            ssh_key::Mpint::from_positive_bytes(sk.private_exponent.as_bytes()),
+            ssh_key::Mpint::from_positive_bytes(sk.coefficient.as_bytes()),
+            ssh_key::Mpint::from_positive_bytes(sk.prime1.as_bytes()),
+            ssh_key::Mpint::from_positive_bytes(sk.prime2.as_bytes()),
+        )?;
+        Ok(ssh_key::private::RsaKeypair::new(public, private)?)
+    }
+
+    /// RSA CRT exponents (`dp`, `dq`), not stored by
+    /// `ssh_key::private::RsaPrivateKey`. Same derivation
+    /// `ssh-key`'s own OpenSSL signing backend uses in `signature.rs`.
+    #[cfg(feature = "rsa")]
+    fn rsa_calc_dp_dq(
+        d: &openssl::bn::BigNumRef,
+        p: &openssl::bn::BigNumRef,
+        q: &openssl::bn::BigNumRef,
+    ) -> Result<(BigNum, BigNum), Error> {
+        let one = BigNum::from_u32(1).map_err(|_| Error::CouldNotReadKey)?;
+        let p1 = p - one.as_ref();
+        let q1 = q - one.as_ref();
+        let mut ctx = BigNumContext::new().map_err(|_| Error::CouldNotReadKey)?;
+        let mut dp = BigNum::new().map_err(|_| Error::CouldNotReadKey)?;
+        let mut dq = BigNum::new().map_err(|_| Error::CouldNotReadKey)?;
+        dp.checked_rem(d, &p1, &mut ctx)
+            .map_err(|_| Error::CouldNotReadKey)?;
+        dq.checked_rem(d, &q1, &mut ctx)
+            .map_err(|_| Error::CouldNotReadKey)?;
+        Ok((dp, dq))
+    }
+
+    /// Encode an [`ssh_key::private::RsaKeypair`] as a PKCS#8 DER document.
+    #[cfg(feature = "rsa")]
+    pub(super) fn rsa_keypair_to_pkcs8_der(
+        keypair: &ssh_key::private::RsaKeypair,
+    ) -> Result<Vec<u8>, Error> {
+        use openssl::rsa::Rsa;
+
+        let bn = |mpint: &ssh_key::Mpint| {
+            BigNum::from_slice(mpint.as_positive_bytes().ok_or(Error::CouldNotReadKey)?)
+                .map_err(|_| Error::CouldNotReadKey)
+        };
+        let n = bn(keypair.public().n())?;
+        let e = bn(keypair.public().e())?;
+        let d = bn(keypair.private().d())?;
+        let p = bn(keypair.private().p())?;
+        let q = bn(keypair.private().q())?;
+        let iqmp = bn(keypair.private().iqmp())?;
+        let (dp, dq) = rsa_calc_dp_dq(&d, &p, &q)?;
+
+        let rsa = Rsa::from_private_components(n, e, d, p, q, dp, dq, iqmp)
+            .map_err(|_| Error::CouldNotReadKey)?;
+        let pkey = PKey::from_rsa(rsa).map_err(|_| Error::CouldNotReadKey)?;
+        pkey.private_key_to_pkcs8().map_err(|_| Error::CouldNotReadKey)
     }
 
     /// RFC 8410 §7: an Ed25519 PKCS#8 `privateKey` OCTET STRING contains a
@@ -473,7 +568,9 @@ pub fn encode_pkcs8(key: &ssh_key::PrivateKey) -> Result<Vec<u8>, Error> {
             let sk: ed25519_dalek::SigningKey = pair.try_into()?;
             sk.to_pkcs8_der()?.as_bytes().to_vec()
         }
-        #[cfg(feature = "rsa")]
+        #[cfg(all(feature = "rsa", feature = "openssl"))]
+        ssh_key::private::KeypairData::Rsa(pair) => openssl_backend::rsa_keypair_to_pkcs8_der(pair)?,
+        #[cfg(all(feature = "rsa", not(feature = "openssl")))]
         ssh_key::private::KeypairData::Rsa(pair) => {
             use rsa::pkcs8::EncodePrivateKey;
             let sk: rsa::PrivateKey = pair.try_into()?;
