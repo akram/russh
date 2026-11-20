@@ -520,9 +520,12 @@ mod tests {
         let mut sealing_key = cipher.make_sealing_key(&key, &iv, &[], &_NONE);
         let mut opening_key = cipher.make_opening_key(&key, &iv, &[], &_NONE);
 
-        // Two packets, to exercise IV/counter chaining across calls.
+        // Two packets, to exercise IV/counter chaining across calls. Padding
+        // is computed the same way `finish_packet` would (so the *total*
+        // buffer, packet_length field included, lands on a block boundary),
+        // not just the packet_length/padding_length/payload/padding region.
         for payload in [&b"hello, fips world"[..], &b"a second packet, different length!"[..]] {
-            let padded_len = 16 - ((1 + payload.len()) % 16);
+            let padded_len = sealing_key.padding_length(payload);
             let packet_length: u32 = (1 + payload.len() + padded_len) as u32;
             let mut buf = packet_length.to_be_bytes().to_vec();
             buf.push(padded_len as u8);
