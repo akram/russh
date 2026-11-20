@@ -18,10 +18,14 @@ sha1 = { version = "0.11", features = ["oid"] }
 sha2 = { version = "0.11", features = ["oid"] }
 signature = "3"
 ssh-encoding = { version = "0.3", features = ["bytes"] }
+## `sha1` is intentionally left out here: PPK's own legacy (v2) KDF/MAC
+## needs it only for the RustCrypto backends, forwarded conditionally from
+## the `aws-lc-rs`/`ring` features in russh/Cargo.toml instead of
+## unconditionally here, so the `openssl` build doesn't pull `sha1` at all
+## (it has its own OpenSSL-backed path for the same operations).
 ssh-key = { version = "=0.7.0-rc.12", features = [
     "encryption",
     "ppk",
-    "sha1",
 ] }
 thiserror = "2.0.18"
 tokio = { version = "1.17.0" }
