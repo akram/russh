@@ -153,6 +153,7 @@ aws-lc-rs = [
     "dep:ctr",
     "dep:rsa",
     "ssh-key/rsa-rust-crypto",
+    "ssh-key/aes-rust-crypto",
 ] # Default crypto backend.
 # Danger: 3DES cipher is insecure. Independent of the aws-lc-rs/ring/openssl
 # choice above: 3des-cbc has no OpenSSL path here, so it keeps the
@@ -189,6 +190,7 @@ ring = [
     "dep:ctr",
     "dep:rsa",
     "ssh-key/rsa-rust-crypto",
+    "ssh-key/aes-rust-crypto",
 ] # Alternative crypto backend.
 # Backend-agnostic: RSA key *type* support (ssh-key's own Mpint-based
 # storage, PKCS#1 parsing via pkcs1). The RustCrypto `rsa` crate itself is
