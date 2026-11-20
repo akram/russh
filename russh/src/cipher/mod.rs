@@ -22,11 +22,19 @@ use std::marker::PhantomData;
 use std::num::Wrapping;
 use std::sync::LazyLock;
 
+// `aes`/`cbc`/`ctr` back the RustCrypto AES-CBC/AES-CTR path for the
+// aws-lc-rs/ring backends (and `cbc`/`block` back 3des-cbc for the `des`
+// feature, independent of backend). The `openssl` backend has its own path
+// in `openssl_block.rs` and doesn't need any of these crates -- same
+// precedent as `gcm.rs`'s aws-lc-rs/ring vs. openssl split.
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use aes::{Aes128, Aes192, Aes256};
 #[cfg(feature = "aws-lc-rs")]
 use aws_lc_rs::aead::{AES_128_GCM as ALGORITHM_AES_128_GCM, AES_256_GCM as ALGORITHM_AES_256_GCM};
 use byteorder::{BigEndian, ByteOrder};
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use block::CtrWrapper;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use ctr::Ctr128BE;
 use delegate::delegate;
 use log::trace;
@@ -35,18 +43,24 @@ use ring::aead::{AES_128_GCM as ALGORITHM_AES_128_GCM, AES_256_GCM as ALGORITHM_
 use ssh_encoding::Encode;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+#[cfg(any(feature = "aws-lc-rs", feature = "ring", feature = "des"))]
 use self::cbc::CbcWrapper;
 use crate::Error;
 use crate::mac::MacAlgorithm;
 use crate::sshbuffer::SSHBuffer;
 
+#[cfg(any(feature = "aws-lc-rs", feature = "ring", feature = "des"))]
 pub(crate) mod block;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring", feature = "des"))]
 pub(crate) mod cbc;
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 pub(crate) mod chacha20poly1305;
 pub(crate) mod clear;
 pub(crate) mod gcm;
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+pub(crate) mod openssl_block;
 
+#[cfg(any(feature = "aws-lc-rs", feature = "ring", feature = "des"))]
 use block::SshBlockCipher;
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use chacha20poly1305::SshChacha20Poly1305Cipher;
@@ -55,6 +69,8 @@ use clear::Clear;
 use gcm::GcmCipher;
 #[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
 use gcm::OpenSslGcmCipher;
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+use openssl_block::{OsslCbcCipher, OsslCtrCipher};
 
 pub(crate) trait Cipher {
     fn needs_mac(&self) -> bool {
@@ -109,9 +125,18 @@ pub const NONE: Name = Name("none");
 pub(crate) static _CLEAR: Clear = Clear {};
 #[cfg(feature = "des")]
 static _3DES_CBC: SshBlockCipher<CbcWrapper<des::TdesEde3>> = SshBlockCipher(PhantomData);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_128_CTR: SshBlockCipher<CtrWrapper<Ctr128BE<Aes128>>> = SshBlockCipher(PhantomData);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_192_CTR: SshBlockCipher<CtrWrapper<Ctr128BE<Aes192>>> = SshBlockCipher(PhantomData);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_256_CTR: SshBlockCipher<CtrWrapper<Ctr128BE<Aes256>>> = SshBlockCipher(PhantomData);
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+static _AES_128_CTR: OsslCtrCipher = OsslCtrCipher(16);
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+static _AES_192_CTR: OsslCtrCipher = OsslCtrCipher(24);
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+static _AES_256_CTR: OsslCtrCipher = OsslCtrCipher(32);
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_128_GCM: GcmCipher = GcmCipher(&ALGORITHM_AES_128_GCM);
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
@@ -120,9 +145,18 @@ static _AES_256_GCM: GcmCipher = GcmCipher(&ALGORITHM_AES_256_GCM);
 static _AES_128_GCM: OpenSslGcmCipher = OpenSslGcmCipher(16);
 #[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
 static _AES_256_GCM: OpenSslGcmCipher = OpenSslGcmCipher(32);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_128_CBC: SshBlockCipher<CbcWrapper<Aes128>> = SshBlockCipher(PhantomData);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_192_CBC: SshBlockCipher<CbcWrapper<Aes192>> = SshBlockCipher(PhantomData);
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _AES_256_CBC: SshBlockCipher<CbcWrapper<Aes256>> = SshBlockCipher(PhantomData);
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+static _AES_128_CBC: OsslCbcCipher = OsslCbcCipher(16);
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+static _AES_192_CBC: OsslCbcCipher = OsslCbcCipher(24);
+#[cfg(all(feature = "openssl", not(feature = "aws-lc-rs"), not(feature = "ring")))]
+static _AES_256_CBC: OsslCbcCipher = OsslCbcCipher(32);
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 static _CHACHA20_POLY1305: SshChacha20Poly1305Cipher = SshChacha20Poly1305Cipher {};
 

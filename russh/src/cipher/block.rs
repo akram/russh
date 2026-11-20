@@ -14,7 +14,11 @@
 use std::convert::TryInto;
 use std::marker::PhantomData;
 
-use aes::cipher::{
+// Imported from `cipher` directly (not `aes::cipher`, itself just a
+// re-export of the same crate) so this file -- generic over any
+// `BlockStreamCipher`, used by both the AES-CTR wrapper below and
+// `des::TdesEde3`-backed 3des-cbc -- never needs the `aes` crate itself.
+use cipher::{
     InOutBuf, Iv, IvSizeUser, Key, KeyIvInit, KeySizeUser, StreamCipher, StreamCipherError,
     StreamCipherSeek,
 };
